@@ -1,0 +1,108 @@
+<html>
+    <head>
+        <link rel="stylesheet" href="./uikit.min.css" />
+        <script src="./uikit.min.js"></script>
+        <script src="./uikit-icons.min.js"></script>
+    </head>
+    <body class="uk-background-muted">
+        <div class="uk-padding-small uk-child-width-1-4@s uk-grid-match" uk-grid></div>
+        <script type="text/javascript">
+            const params = new URL(document.location).searchParams
+            document.cookie = `zsessionid=${params.get('apiKey')}`
+
+            const rallyUrl = 'https://rally1.rallydev.com/slm/webservice/v2.0/'
+            const query = `((Name contains "${params.get('iteration')}") and (Project.Name contains "${params.get('project')}"))`
+
+            queryRally(`${rallyUrl}iteration?query=${encodeURIComponent(query)}&fetch=true&start=1&pagesize=20`)
+              .then(results => results[0].WorkProducts._ref)
+              .then(queryRally)
+              .then(render)
+
+            function queryRally(url) {
+              const options = {
+                method: 'get',
+                credentials: 'include',
+                mode: 'cors'
+              }
+
+              return fetch(url, options)
+                .then(response => response.json())
+                .then(results => results.QueryResult.Results)
+            }
+
+            function getTasks(story) {
+              return queryRally(story.Tasks._ref)
+                .then(tasks => [story, tasks.sort(byTaskIndex)])
+            }
+
+            function render(stories) {
+              const parser = new DOMParser()
+              stories
+                .map(getTasks)
+                .map(story => story
+                  .then(buildDOM)
+                  .then(html => parser.parseFromString(html, "text/html").body.firstChild)
+                  .then(node => document.querySelector('[uk-grid]').appendChild(node))
+                )
+            }
+
+            function buildDOM([story, tasks]) {
+              return `
+                <div>
+                    <div class="uk-card uk-card-default uk-card-small">
+                      <div class="uk-card-header">
+                        <div class="uk-card-badge uk-label">${story.ScheduleState}</div>
+                        <h3 class="uk-card-title">${story.FormattedID}</h3>
+                        <p class="uk-text-meta">${story.Name}</p>
+                      </div>
+                      <div class="uk-card-body">
+                        ${isComplete(story) ? `
+                            <div class="uk-overlay-default uk-position-cover">
+                                <div class="uk-position-center">
+                                    <span uk-overlay-icon="icon: check; ratio: 3.5"></span>
+                                </div>
+                            </div>
+                        ` : ''}
+                        <progress class="uk-progress" value="${countCompletedTasks(tasks)}" max="${tasks.length}"></progress>
+                        <ul class="uk-list uk-text-small">
+                          ${tasks
+                              .map(task => `<li>${renderTask(task)}</li>`)
+                              .reduce((html, item) => html + item, '')
+                          }
+                        </ul>
+                      </div>
+                    </div>
+                </div>
+              `
+            }
+
+            function renderTask(task) {
+              return isTaskComplete(task) ? `<del>${encodeHtmlEntity(task.Name)}</del>` : encodeHtmlEntity(task.Name)
+            }
+
+            function isComplete(story) {
+              return story.ScheduleState === 'Completed'
+            }
+
+            function isTaskComplete(task) {
+              return task.State === 'Completed'
+            }
+
+            function countCompletedTasks(tasks) {
+              return tasks.reduce((completed, task) => isTaskComplete(task) ? completed + 1 : completed, 0)
+            }
+
+            function byTaskIndex(task1, task2) {
+              return task1.TaskIndex - task2.TaskIndex
+            }
+
+            function encodeHtmlEntity(str) {
+              var buf = [];
+              for (var i=str.length-1;i>=0;i--) {
+                buf.unshift(['&#', str[i].charCodeAt(), ';'].join(''));
+              }
+              return buf.join('');
+            }
+        </script>
+    </body>
+</html>
